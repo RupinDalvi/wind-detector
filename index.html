@@ -1,0 +1,691 @@
+!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WindCoach - Passive Audio Wind Estimator</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #111833;
+      --text: #e6ecff;
+      --muted: #a6b3d1;
+      --accent: #7aa2ff;
+      --accent2: #3dd3c3;
+      --danger: #ff6b7a;
+      --warn: #ffc466;
+      --ok: #69db7c;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji"; color: var(--text); background: radial-gradient(1000px 600px at 10% -10%, #162044 0%, #0b1020 30%, #0b1020 100%); }
+    header { padding: 18px 20px; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+    h1 { font-size: 20px; margin: 0; letter-spacing: 0.2px; }
+    .small { color: var(--muted); font-size: 13px; }
+    main { display: grid; grid-template-columns: 360px 1fr; gap: 16px; padding: 16px; }
+    @media (max-width: 980px) { main { grid-template-columns: 1fr; } }
+    .panel { background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02)); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; box-shadow: 0 12px 40px rgba(0,0,0,0.3); }
+    .left { padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+    .section { padding: 12px; border-radius: 12px; background: rgba(10,14,32,0.6); border: 1px solid rgba(255,255,255,0.06); }
+    .section h2 { font-size: 14px; margin: 0 0 10px 0; color: var(--muted); letter-spacing: 0.3px; text-transform: uppercase; }
+    .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    button, .btn { appearance: none; border: 1px solid rgba(255,255,255,0.12); background: linear-gradient(180deg, #1b2449, #121a39); color: var(--text); padding: 10px 12px; border-radius: 12px; font-weight: 600; cursor: pointer; transition: transform 0.04s ease, box-shadow 0.2s ease, border-color 0.2s ease; }
+    button:hover { border-color: rgba(255,255,255,0.22); box-shadow: 0 6px 24px rgba(0,0,0,0.28); }
+    button:active { transform: translateY(1px); }
+    button[disabled] { opacity: 0.5; cursor: not-allowed; }
+    .danger { background: linear-gradient(180deg, #4b1b2a, #39121f); border-color: rgba(255,107,122,0.4); }
+    .accent { background: linear-gradient(180deg, #26457a, #1b2e57); border-color: rgba(122,162,255,0.5); }
+    .ok { background: linear-gradient(180deg, #1e4b37, #123928); border-color: rgba(105,219,124,0.5); }
+    .warn { background: linear-gradient(180deg, #4b3a1e, #392b12); border-color: rgba(255,196,102,0.5); }
+    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .metric { padding: 12px; border-radius: 12px; background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02)); border: 1px solid rgba(255,255,255,0.06); text-align: center; }
+    .metric .label { font-size: 12px; color: var(--muted); }
+    .metric .value { font-size: 26px; font-weight: 800; margin-top: 6px; }
+    .canvasWrap { padding: 8px; height: 540px; display: grid; grid-template-rows: auto 1fr; }
+    #windCanvas { width: 100%; height: 100%; background: radial-gradient(400px 240px at 50% 0%, rgba(122,162,255,0.07), rgba(61,211,195,0.06) 40%, rgba(255,255,255,0.02) 100%); border-radius: 14px; border: 1px solid rgba(255,255,255,0.06); }
+    .log { height: 160px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; font-size: 12px; background: rgba(0,0,0,0.25); border-radius: 10px; padding: 12px; border: 1px solid rgba(255,255,255,0.06); }
+    details summary { cursor: pointer; color: var(--muted); }
+    .badge { padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.14); font-size: 11px; color: var(--muted); }
+    footer { padding: 10px 16px; color: var(--muted); font-size: 12px; text-align: center; }
+    .link { color: var(--accent2); text-decoration: none; border-bottom: 1px dashed rgba(61,211,195,0.4); }
+    .hidden { display: none; }
+    .video { width: 100%; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); }
+    #poseCanvas { width: 100%; height: 260px; background: rgba(255,255,255,0.03); border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    @media (max-width: 640px){ .grid2 { grid-template-columns: 1fr; } }
+    label { font-size: 12px; color: var(--muted); }
+    input[type="number"], select { background: rgba(255,255,255,0.04); color: var(--text); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 6px 8px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>WindCoach <span class="small">- Passive Audio Wind Estimator (Web, no backend)</span></h1>
+    <div class="row">
+      <span class="badge" id="status-mic">Mic: idle</span>
+      <span class="badge" id="status-gps">Location: idle</span>
+      <span class="badge" id="status-cam">Cam: idle</span>
+      <span class="badge" id="status-ride">Ride: idle</span>
+      <span class="badge" id="status-cal">Cal: idle</span>
+    </div>
+  </header>
+  <main>
+    <div class="left panel">
+      <div class="section">
+        <h2>1) Permissions</h2>
+        <div class="row">
+          <button id="btnMic" class="accent">Enable Microphone</button>
+          <button id="btnGPS" class="accent">Enable Location</button>
+          <button id="btnCam" class="accent">Enable Camera</button>
+        </div>
+        <p class="small">Use mobile Chrome/Safari over HTTPS. Grant mic + precise location. Disable noise suppression/AGC in the prompt if shown.</p>
+      </div>
+
+      <div class="section">
+        <h2>2) Calibration (5-8 min total)</h2>
+        <div class="row">
+          <button id="btnStartCal" class="warn">Start Calibration</button>
+          <button id="btnEndCal" class="warn" disabled>End Calibration</button>
+          <button id="btnResetCal" class="danger">Reset</button>
+        </div>
+        <p class="small">Ride three steady passes on flat, low-wind: about 20, 30, 40 km/h. Tap Start before each, End after. The model will learn a mapping from audio to apparent airspeed.</p>
+        <div class="row">
+          <span class="badge" id="calCount">Samples: 0</span>
+          <span class="badge" id="calFit">Model: not trained</span>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>3) Ride</h2>
+        <div class="row">
+          <button id="btnStartRide" class="ok" disabled>Start Ride</button>
+          <button id="btnStopRide" class="danger" disabled>Stop Ride</button>
+          <button id="btnExport" class="btn" disabled>Export JSON</button>
+          <button id="btnExportCSV" class="btn" disabled>Export CSV</button>
+        </div>
+        <div class="metrics">
+          <div class="metric"><div class="label">Ground speed</div><div class="value" id="mSpeed">0.0 km/h</div></div>
+          <div class="metric"><div class="label">Apparent wind</div><div class="value" id="mVa">0.0 km/h</div></div>
+          <div class="metric"><div class="label">True wind</div><div class="value" id="mW">0.0 km/h</div></div>
+          <div class="metric"><div class="label">Heading</div><div class="value" id="mHead">-</div></div>
+          <div class="metric"><div class="label">Crosswind</div><div class="value" id="mCross">0.0 km/h</div></div>
+          <div class="metric"><div class="label">Confidence</div><div class="value" id="mConf">-</div></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>4) Posture Snapshot</h2>
+        <div class="row">
+          <button id="btnSnap" class="btn" disabled>Take Snapshot</button>
+          <select id="poseLabel">
+            <option value="unlabeled">Label (optional)</option>
+            <option value="tops">Tops</option>
+            <option value="hoods">Hoods</option>
+            <option value="drops">Drops</option>
+          </select>
+          <button id="btnSavePose" class="ok" disabled>Save Angles</button>
+        </div>
+        <div class="grid2">
+          <video id="cam" class="video hidden" autoplay playsinline muted></video>
+          <canvas id="poseCanvas"></canvas>
+        </div>
+        <div class="metrics" style="margin-top:10px; grid-template-columns: repeat(4, 1fr);">
+          <div class="metric"><div class="label">Torso pitch</div><div class="value" id="mTorso">-</div></div>
+          <div class="metric"><div class="label">Neck flexion</div><div class="value" id="mNeck">-</div></div>
+          <div class="metric"><div class="label">Pose conf.</div><div class="value" id="mPoseConf">-</div></div>
+          <div class="metric"><div class="label">Samples saved</div><div class="value" id="mPoseN">0</div></div>
+        </div>
+        <p class="small">Snapshots run an on-device pose model (MediaPipe). We store only computed angles unless you export images explicitly (not enabled by default).</p>
+      </div>
+
+      <div class="section">
+        <h2>5) Settings</h2>
+        <div class="grid2">
+          <div>
+            <label>Feature band min (Hz)
+              <input type="number" id="sFmin" min="50" max="2000" step="10" value="200" />
+            </label>
+          </div>
+          <div>
+            <label>Feature band max (Hz)
+              <input type="number" id="sFmax" min="500" max="8000" step="50" value="2000" />
+            </label>
+          </div>
+          <div>
+            <label># Bands (edges)
+              <input type="number" id="sNBands" min="6" max="20" step="1" value="11" />
+            </label>
+          </div>
+          <div>
+            <label>Ridge lambda x1e-3
+              <input type="number" id="sRidge" min="1" max="100" step="1" value="5" />
+            </label>
+          </div>
+          <div>
+            <label>Solver window (s)
+              <input type="number" id="sWinSec" min="4" max="20" step="1" value="8" />
+            </label>
+          </div>
+          <div>
+            <label>Smoothness lambda x1e-2
+              <input type="number" id="sSmooth" min="0" max="50" step="1" value="2" />
+            </label>
+          </div>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <button id="btnApply" class="ok">Apply & Save</button>
+          <span class="small">(Settings persist in this browser)</span>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>6) Self Tests</h2>
+        <div class="row">
+          <button id="btnRunTests" class="btn">Run Self Tests</button>
+          <span class="badge" id="testSummary">not run</span>
+        </div>
+        <div id="testResults" class="log hidden"></div>
+      </div>
+
+      <div class="section">
+        <h2>Debug / Logs</h2>
+        <div class="row">
+          <button id="btnToggleLog" class="btn">Toggle Logs</button>
+        </div>
+        <div id="log" class="log hidden"></div>
+      </div>
+
+      <div class="section">
+        <h2>Notes</h2>
+        <ul class="small">
+          <li>Keep a consistent phone mount and orientation. Avoid blocking the mic.</li>
+          <li>In heavy traffic or rain, confidence will drop; estimates are smoothed over 5-10 s.</li>
+          <li>GitHub Pages deploy: commit this file as index.html, enable Pages -> main branch.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="panel canvasWrap">
+      <div class="row" style="justify-content: space-between; align-items: center; padding: 10px 12px;">
+        <div>
+          <div class="small">Wind visualization (ground frame)</div>
+          <div class="small">Arrow shows estimated true wind; circle ring shows apparent wind magnitude; bike points along current ground heading.</div>
+        </div>
+        <div class="row">
+          <span class="badge">Window: <span id="winSec">8</span> s</span>
+          <span class="badge">Frames: <span id="frameCount">0</span></span>
+        </div>
+      </div>
+      <canvas id="windCanvas"></canvas>
+    </div>
+  </main>
+
+  <footer>
+    Built for browsers with Web Audio + Geolocation + Camera. No data leaves your device. (c) WindCoach
+  </footer>
+
+  <script>
+    // --------------------------- Utilities ---------------------------
+    function clamp(x, a, b) { return Math.max(a, Math.min(b, x)); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function ema(prev, x, alpha) { return prev === null ? x : (alpha * x + (1 - alpha) * prev); }
+    function rad(deg) { return deg * Math.PI / 180; }
+    function deg(radx) { return radx * 180 / Math.PI; }
+
+    function haversine(lat1, lon1, lat2, lon2) {
+      const R = 6371000; // meters
+      const phi1 = rad(lat1), phi2 = rad(lat2);
+      const dphi = rad(lat2 - lat1), dl = rad(lon2 - lon1);
+      const a = Math.sin(dphi/2)*Math.sin(dphi/2) + Math.cos(phi1)*Math.cos(phi2)*Math.sin(dl/2)*Math.sin(dl/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      return R * c;
+    }
+    function bearing(lat1, lon1, lat2, lon2) { // 0..360 from north
+      const phi1 = rad(lat1), phi2 = rad(lat2);
+      const dl = rad(lon2 - lon1);
+      const y = Math.sin(dl) * Math.cos(phi2);
+      const x = Math.cos(phi1)*Math.sin(phi2) - Math.sin(phi1)*Math.cos(phi2)*Math.cos(dl);
+      var brng = deg(Math.atan2(y, x));
+      if (brng < 0) brng += 360;
+      return brng;
+    }
+
+    function vecFromSpeedHeading(speed_mps, heading_deg) { // ENU, x=east, y=north
+      const theta = rad(90 - heading_deg); // convert bearing to math angle
+      return { x: speed_mps * Math.cos(theta), y: speed_mps * Math.sin(theta) };
+    }
+
+    function mag(v) { return Math.hypot(v.x, v.y); }
+    function add(v, w) { return { x: v.x + w.x, y: v.y + w.y }; }
+    function sub(v, w) { return { x: v.x - w.x, y: v.y - w.y }; }
+    function scale(v, k) { return { x: v.x * k, y: v.y * k }; }
+
+    function toKMH(ms) { return ms * 3.6; }
+    function toMS(kmh) { return kmh / 3.6; }
+
+    function logspace(fmin, fmax, n) {
+      const a = Math.log(fmin), b = Math.log(fmax);
+      const edges = [];
+      for (let i = 0; i < n; i++) {
+        const t = i / (n - 1);
+        edges.push(Math.exp(a + (b - a) * t));
+      }
+      return edges;
+    }
+
+    // --------------------------- Logging ---------------------------
+    const logEl = document.getElementById('log');
+    let logVisible = false;
+    function log(msg) {
+      if (!logVisible) return;
+      const t = new Date().toLocaleTimeString();
+      logEl.textContent += "[" + t + "] " + msg + "
+";
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    document.getElementById('btnToggleLog').addEventListener('click', function() {
+      logVisible = !logVisible;
+      logEl.classList.toggle('hidden', !logVisible);
+    });
+
+    // --------------------------- Settings (persist) ---------------------------
+    const settings = { fmin: 200, fmax: 2000, nBands: 11, ridgeLambdaMilli: 5, solverWindowSec: 8, smoothLambdaCent: 2 };
+    function loadSettings() {
+      const s = localStorage.getItem('windcoach_settings');
+      if (s) try { Object.assign(settings, JSON.parse(s)); } catch(e) {}
+      document.getElementById('sFmin').value = settings.fmin;
+      document.getElementById('sFmax').value = settings.fmax;
+      document.getElementById('sNBands').value = settings.nBands;
+      document.getElementById('sRidge').value = settings.ridgeLambdaMilli;
+      document.getElementById('sWinSec').value = settings.solverWindowSec;
+      document.getElementById('sSmooth').value = settings.smoothLambdaCent;
+      applySettings();
+    }
+    function applySettings() {
+      featureEdges = logspace(settings.fmin, settings.fmax, settings.nBands);
+      model.lambda = settings.ridgeLambdaMilli * 1e-3;
+      solver.maxLen = Math.round(settings.solverWindowSec * (1000 / audio.frameMs));
+      solver.lambda = settings.smoothLambdaCent * 1e-2;
+      document.getElementById('winSec').textContent = settings.solverWindowSec;
+      log("Settings applied: bands=" + settings.nBands + " " + settings.fmin + "-" + settings.fmax + "Hz, ridge=" + model.lambda + ", window=" + solver.maxLen + " frames");
+    }
+    document.getElementById('btnApply').addEventListener('click', function() {
+      settings.fmin = Number(document.getElementById('sFmin').value);
+      settings.fmax = Number(document.getElementById('sFmax').value);
+      settings.nBands = Number(document.getElementById('sNBands').value);
+      settings.ridgeLambdaMilli = Number(document.getElementById('sRidge').value);
+      settings.solverWindowSec = Number(document.getElementById('sWinSec').value);
+      settings.smoothLambdaCent = Number(document.getElementById('sSmooth').value);
+      localStorage.setItem('windcoach_settings', JSON.stringify(settings));
+      applySettings();
+      alert('Settings saved.');
+    });
+
+    // --------------------------- Audio Feature Extractor ---------------------------
+    var featureEdges = null;
+    class AudioFeatures {
+      constructor() { this.ac = null; this.analyser = null; this.freqBins = null; this.fftSize = 4096; this.sampleRate = 0; this.timer = null; this.lastFeatures = null; this.onFeatures = null; this.frameMs = 100; }
+      async start() {
+        if (this.ac) return;
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, noiseSuppression: false, echoCancellation: false, autoGainControl: false } });
+        this.ac = new (window.AudioContext || window.webkitAudioContext)();
+        const src = this.ac.createMediaStreamSource(stream);
+        this.analyser = this.ac.createAnalyser();
+        this.analyser.fftSize = this.fftSize; this.analyser.smoothingTimeConstant = 0.05; this.analyser.minDecibels = -110; this.analyser.maxDecibels = -10;
+        this.sampleRate = this.ac.sampleRate; this.freqBins = new Float32Array(this.analyser.frequencyBinCount);
+        src.connect(this.analyser);
+        document.getElementById('status-mic').textContent = 'Mic: on';
+        log('Mic started. SR=' + this.sampleRate + 'Hz, fftSize=' + this.fftSize);
+        this.timer = setInterval(() => this._tick(), this.frameMs);
+      }
+      stop() {
+        if (this.timer) clearInterval(this.timer); this.timer = null;
+        if (this.ac) { this.ac.close(); }
+        this.ac = null; this.analyser = null; document.getElementById('status-mic').textContent = 'Mic: off';
+      }
+      _tick() {
+        if (!this.analyser) return;
+        this.analyser.getFloatFrequencyData(this.freqBins);
+        const n = this.freqBins.length; const power = new Float32Array(n);
+        for (let i = 0; i < n; i++) power[i] = Math.pow(10, this.freqBins[i] / 10);
+        const sr = this.sampleRate; const binHz = sr / this.fftSize;
+        const feats = [];
+        for (let b = 0; b < featureEdges.length - 1; b++) {
+          const f0 = featureEdges[b], f1 = featureEdges[b + 1];
+          const i0 = Math.max(0, Math.floor(f0 / binHz)); const i1 = Math.min(n - 1, Math.ceil(f1 / binHz));
+          let sum = 0; for (let i = i0; i <= i1; i++) sum += power[i];
+          feats.push(Math.log(1e-12 + sum / (i1 - i0 + 1))); // log-average power
+        }
+        const iL0 = Math.max(0, Math.floor(50 / binHz)); const iL1 = Math.min(n - 1, Math.ceil(150 / binHz));
+        let lowSum = 0; for (let i = iL0; i <= iL1; i++) lowSum += power[i];
+        const iF0 = Math.max(0, Math.floor(settings.fmin / binHz)); const iF1 = Math.min(n - 1, Math.ceil(settings.fmax / binHz));
+        let geo = 0, arith = 0, count = (iF1 - iF0 + 1);
+        for (let i = iF0; i <= iF1; i++) { const p = Math.max(power[i], 1e-18); geo += Math.log(p); arith += p; }
+        geo = Math.exp(geo / count); arith = arith / count; const flatness = clamp(geo / (arith + 1e-18), 0, 1);
+        const metrics = { lowBand: Math.log(1e-12 + lowSum / (iL1 - iL0 + 1)), flatness: flatness };
+        this.lastFeatures = { features: feats, metrics: metrics };
+        if (this.onFeatures) this.onFeatures(this.lastFeatures);
+      }
+    }
+
+    // --------------------------- Calibration Model (Ridge Regression) ---------------------------
+    class RidgeRegressor {
+      constructor(lambda = 1e-2) { this.lambda = lambda; this.coef = null; this.X = []; this.y = []; }
+      addSample(feats, target) { const x = [1].concat(feats); this.X.push(x); this.y.push(target); }
+      reset() { this.coef = null; this.X = []; this.y = []; }
+      fit() {
+        const m = this.X.length; if (m < 8) return false; const n = this.X[0].length;
+        const XtX = Array(n).fill(0).map(function(){ return Array(n).fill(0); });
+        const Xty = Array(n).fill(0);
+        for (let i = 0; i < m; i++) {
+          const xi = this.X[i];
+          for (let a = 0; a < n; a++) {
+            Xty[a] += xi[a] * this.y[i];
+            for (let b = 0; b < n; b++) XtX[a][b] += xi[a] * xi[b];
+          }
+        }
+        for (let d = 0; d < n; d++) XtX[d][d] += (d === 0 ? this.lambda * 0.01 : this.lambda);
+        const A = XtX.map(function(row){ return row.slice(); });
+        const b = Xty.slice();
+        const w = gaussianSolve(A, b);
+        this.coef = w; return true;
+      }
+      predict(feats) { if (!this.coef) return 0; var s = this.coef[0]; for (let i = 0; i < feats.length; i++) s += this.coef[i + 1] * feats[i]; return Math.max(0, s); }
+    }
+    function gaussianSolve(A, b) {
+      const n = A.length; for (let i = 0; i < n; i++) A[i].push(b[i]);
+      for (let i = 0; i < n; i++) {
+        var maxRow = i; var maxVal = Math.abs(A[i][i]);
+        for (let r = i + 1; r < n; r++) { const v = Math.abs(A[r][i]); if (v > maxVal) { maxVal = v; maxRow = r; } }
+        if (maxVal < 1e-12) throw new Error('Singular matrix');
+        if (maxRow !== i) { const tmp = A[i]; A[i] = A[maxRow]; A[maxRow] = tmp; }
+        const piv = A[i][i]; for (let c = i; c <= n; c++) A[i][c] /= piv;
+        for (let r = 0; r < n; r++) if (r !== i) { const f = A[r][i]; for (let c = i; c <= n; c++) A[r][c] -= f * A[i][c]; }
+      }
+      const x = Array(n).fill(0); for (let i = 0; i < n; i++) x[i] = A[i][n]; return x;
+    }
+
+    // --------------------------- Wind Vector Solver ---------------------------
+    class WindSolver {
+      constructor() { this.window = []; this.maxLen = 80; this.w = { x: 0, y: 0 }; this.prevW = { x: 0, y: 0 }; this.lambda = 0.02; }
+      push(vg, va, weight) { this.window.push({ vg: vg, va: va, weight: weight }); if (this.window.length > this.maxLen) this.window.shift(); }
+      size() { return this.window.length; }
+      solve(iter = 10, step = 0.8) {
+        if (this.window.length < 10) return this.w; var wx = this.w.x, wy = this.w.y;
+        for (let k = 0; k < iter; k++) {
+          var gx = 0, gy = 0;
+          for (let i = 0; i < this.window.length; i++) {
+            const s = this.window[i]; const dx = wx - s.vg.x, dy = wy - s.vg.y; const dist = Math.hypot(dx, dy) + 1e-9; const resid = dist - s.va; const ww = s.weight != null ? s.weight : 1.0; gx += ww * 2 * resid * (dx / dist); gy += ww * 2 * resid * (dy / dist);
+          }
+          gx += 2 * this.lambda * (wx - this.prevW.x); gy += 2 * this.lambda * (wy - this.prevW.y);
+          wx -= step * gx / Math.max(1, this.window.length); wy -= step * gy / Math.max(1, this.window.length);
+        }
+        this.prevW = { x: this.w.x, y: this.w.y }; this.w = { x: wx, y: wy }; return this.w;
+      }
+    }
+
+    // --------------------------- GPS / Heading Smoother ---------------------------
+    class GPSTracker {
+      constructor() { this.watchId = null; this.last = null; this.speed = 0; this.heading = null; this.speedEma = null; this.headingEma = null; this.alphaSpeed = 0.3; this.alphaHead = 0.2; this.onUpdate = null; }
+      start() {
+        if (!('geolocation' in navigator)) { alert('Geolocation not supported'); return; }
+        this.watchId = navigator.geolocation.watchPosition(function(pos){
+          const lat = pos.coords.latitude, lon = pos.coords.longitude, speed = pos.coords.speed, heading = pos.coords.heading; const t = pos.timestamp;
+          var sp = (speed != null && !isNaN(speed)) ? speed : null; var hd = (heading != null && !isNaN(heading)) ? heading : null;
+          if (this.last) {
+            const dt = (t - this.last.time) / 1000; const d = haversine(this.last.lat, this.last.lon, lat, lon);
+            if (sp == null && dt > 0) sp = d / dt; if (hd == null && d > 1) hd = bearing(this.last.lat, this.last.lon, lat, lon);
+          }
+          if (sp != null) this.speedEma = ema(this.speedEma, sp, this.alphaSpeed); if (hd != null) this.headingEma = ema(this.headingEma, hd, this.alphaHead);
+          this.speed = this.speedEma != null ? this.speedEma : (sp || 0); this.heading = this.headingEma != null ? this.headingEma : hd; this.last = { lat: lat, lon: lon, time: t };
+          if (this.onUpdate) this.onUpdate({ speed: this.speed, heading: this.heading });
+        }.bind(this), function(err){ console.error(err); alert('Location error: ' + err.message); }, { enableHighAccuracy: true, maximumAge: 500, timeout: 10000 });
+        document.getElementById('status-gps').textContent = 'Location: on'; log('GPS started');
+      }
+      stop() { if (this.watchId != null) navigator.geolocation.clearWatch(this.watchId); this.watchId = null; document.getElementById('status-gps').textContent = 'Location: off'; }
+    }
+
+    // --------------------------- Camera + Pose ---------------------------
+    const camVideo = document.getElementById('cam');
+    const poseCanvas = document.getElementById('poseCanvas');
+    const pctx = poseCanvas.getContext('2d');
+    var camStream = null; var poseReady = false; var PoseLandmarker = null, FilesetResolver = null, poseLandmarker = null;
+
+    async function enableCamera() {
+      try {
+        camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: {ideal: 640}, height: {ideal: 480} }, audio: false });
+        camVideo.srcObject = camStream; camVideo.classList.remove('hidden');
+        document.getElementById('status-cam').textContent = 'Cam: on';
+        if (!PoseLandmarker) {
+          const mod = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.6');
+          PoseLandmarker = mod.PoseLandmarker; FilesetResolver = mod.FilesetResolver;
+          const resolver = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.6/wasm');
+          poseLandmarker = await PoseLandmarker.createFromOptions(resolver, { baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task' }, runningMode: 'IMAGE', numPoses: 1 });
+          poseReady = true; log('Pose model loaded'); document.getElementById('btnSnap').disabled = false;
+        }
+      } catch (e) { alert('Camera error: ' + e.message); }
+    }
+
+    function drawPose(imageBitmap, landmarks) {
+      poseCanvas.width = imageBitmap.width; poseCanvas.height = imageBitmap.height; pctx.clearRect(0,0,poseCanvas.width, poseCanvas.height); pctx.drawImage(imageBitmap, 0, 0);
+      if (!landmarks) return; pctx.lineWidth = 3; pctx.strokeStyle = 'rgba(122,162,255,0.9)'; pctx.fillStyle = 'rgba(61,211,195,0.9)';
+      const lm = landmarks; function L(i){ return {x: lm[i].x * poseCanvas.width, y: lm[i].y * poseCanvas.height}; }
+      const pairs = [ [11,12],[11,23],[12,24],[23,24],[11,13],[13,15],[12,14],[14,16] ];
+      for (let j=0;j<pairs.length;j++){ const a=pairs[j][0], b=pairs[j][1]; const A=L(a), B=L(b); pctx.beginPath(); pctx.moveTo(A.x,A.y); pctx.lineTo(B.x,B.y); pctx.stroke(); }
+      const points = [11,12,23,24,0,7,8];
+      for (let j=0;j<points.length;j++){ const P=L(points[j]); pctx.beginPath(); pctx.arc(P.x,P.y,4,0,Math.PI*2); pctx.fill(); }
+    }
+
+    function angleBetween(vx1, vy1, vx2, vy2) { const dot = vx1*vx2 + vy1*vy2; const n1 = Math.hypot(vx1,vy1), n2 = Math.hypot(vx2,vy2); if (n1<1e-6||n2<1e-6) return null; const c = clamp(dot/(n1*n2), -1, 1); return Math.acos(c); }
+
+    function analyzePose(landmarks) {
+      const idx = { nose:0, lShoulder:11, rShoulder:12, lHip:23, rHip:24, lEar:7, rEar:8 };
+      const w = poseCanvas.width, h = poseCanvas.height;
+      function P(i){ return {x: landmarks[i].x * w, y: landmarks[i].y * h, z: landmarks[i].z}; }
+      var pts = { ls:P(idx.lShoulder), rs:P(idx.rShoulder), lh:P(idx.lHip), rh:P(idx.rHip), nose:P(idx.nose), le:P(idx.lEar), re:P(idx.rEar) };
+      const S = { x: (pts.ls.x + pts.rs.x)/2, y: (pts.ls.y + pts.rs.y)/2 };
+      const H = { x: (pts.lh.x + pts.rh.x)/2, y: (pts.lh.y + pts.rh.y)/2 };
+      const torso = { x: S.x - H.x, y: S.y - H.y };
+      const torsoAngle = angleBetween(torso.x, torso.y, 0, -1);
+      const headv = { x: pts.nose.x - S.x, y: pts.nose.y - S.y };
+      const neckAngle = angleBetween(headv.x, headv.y, torso.x, torso.y);
+      if (torsoAngle == null || neckAngle == null) return { ok:false, msg:'Low confidence vectors' };
+      const torsoDeg = deg(torsoAngle).toFixed(1);
+      const neckDeg = deg(neckAngle).toFixed(1);
+      return { ok:true, torsoDeg: torsoDeg, neckDeg: neckDeg };
+    }
+
+    async function snapshotAndAnalyze() {
+      if (!camVideo.videoWidth || !poseReady) return;
+      const bmp = await createImageBitmap(camVideo);
+      const image = await createImageBitmap(camVideo);
+      const res = poseLandmarker.detect(image);
+      const lm = res && res.landmarks && res.landmarks[0] ? res.landmarks[0] : null;
+      drawPose(bmp, lm);
+      var torsoOut = '-', neckOut = '-', confOut = '-'; var ok = false;
+      if (lm) { const a = analyzePose(lm); if (a.ok) { torsoOut = a.torsoDeg + ' deg'; neckOut = a.neckDeg + ' deg'; confOut = (res.poseWorldLandmarks ? 'hi' : 'ok'); ok = true; } }
+      document.getElementById('mTorso').textContent = torsoOut;
+      document.getElementById('mNeck').textContent = neckOut;
+      document.getElementById('mPoseConf').textContent = confOut;
+      document.getElementById('btnSavePose').disabled = !ok;
+    }
+
+    // --------------------------- App State ---------------------------
+    const audio = new AudioFeatures();
+    const gps = new GPSTracker();
+    const model = new RidgeRegressor(5e-3);
+    const solver = new WindSolver();
+    var calibrating = false; var riding = false; var lastVa = 0; var lastConf = 0; var frames = 0;
+
+    const statusRide = document.getElementById('status-ride');
+    const statusCal = document.getElementById('status-cal');
+    const calCount = document.getElementById('calCount');
+    const calFit = document.getElementById('calFit');
+    const frameCount = document.getElementById('frameCount');
+
+    const mSpeed = document.getElementById('mSpeed');
+    const mVa = document.getElementById('mVa');
+    const mW = document.getElementById('mW');
+    const mHead = document.getElementById('mHead');
+    const mCross = document.getElementById('mCross');
+    const mConf = document.getElementById('mConf');
+
+    const btnMic = document.getElementById('btnMic');
+    const btnGPS = document.getElementById('btnGPS');
+    const btnCam = document.getElementById('btnCam');
+    const btnStartCal = document.getElementById('btnStartCal');
+    const btnEndCal = document.getElementById('btnEndCal');
+    const btnResetCal = document.getElementById('btnResetCal');
+    const btnStartRide = document.getElementById('btnStartRide');
+    const btnStopRide = document.getElementById('btnStopRide');
+    const btnExport = document.getElementById('btnExport');
+    const btnExportCSV = document.getElementById('btnExportCSV');
+
+    const btnSnap = document.getElementById('btnSnap');
+    const btnSavePose = document.getElementById('btnSavePose');
+    const poseLabelSel = document.getElementById('poseLabel');
+
+    const winSecEl = document.getElementById('winSec');
+
+    const testResults = document.getElementById('testResults');
+    const testSummary = document.getElementById('testSummary');
+
+    const logData = []; // wind stream
+    const poseData = []; // snapshots
+
+    btnMic.addEventListener('click', async function(){ try { await audio.start(); btnStartRide.disabled = false; } catch (e) { alert('Mic start failed: ' + e.message); } });
+    btnGPS.addEventListener('click', function(){ gps.start(); });
+    btnCam.addEventListener('click', function(){ enableCamera(); });
+
+    btnStartCal.addEventListener('click', function(){ calibrating = true; statusCal.textContent = 'Cal: recording'; btnEndCal.disabled = false; log('Calibration segment started'); });
+    btnEndCal.addEventListener('click', function(){
+      calibrating = false; statusCal.textContent = 'Cal: idle'; btnEndCal.disabled = true; log('Calibration segment ended');
+      const ok = model.fit(); if (ok) { calFit.textContent = 'Model: trained'; btnStartRide.disabled = false; } else { calFit.textContent = 'Model: need more data'; }
+    });
+    btnResetCal.addEventListener('click', function(){ model.reset(); calCount.textContent = 'Samples: 0'; calFit.textContent = 'Model: not trained'; });
+
+    btnStartRide.addEventListener('click', function(){ riding = true; statusRide.textContent = 'Ride: active'; btnStartRide.disabled = true; btnStopRide.disabled = false; btnExport.disabled = false; btnExportCSV.disabled = false; });
+    btnStopRide.addEventListener('click', function(){ riding = false; statusRide.textContent = 'Ride: stopped'; btnStartRide.disabled = false; btnStopRide.disabled = true; });
+
+    btnExport.addEventListener('click', function(){
+      const blob = new Blob([JSON.stringify({ wind: logData, posture: poseData }, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'windcoach_log.json'; a.click(); URL.revokeObjectURL(url);
+    });
+    btnExportCSV.addEventListener('click', function(){
+      const header = ['t','speed_mps','heading_deg','va_mps','audio_conf','wind_x','wind_y','flatness','lowBand'];
+      const rows = [header.join(',')];
+      for (let i=0;i<logData.length;i++){ const r = logData[i]; rows.push([r.t, (r.speed!=null? r.speed.toFixed(3):''), (r.heading!=null? r.heading.toFixed(2):''), (r.va!=null? r.va.toFixed(3):''), (r.audioWeight!=null? r.audioWeight.toFixed(3):''), (r.wind && r.wind.x!=null? r.wind.x.toFixed(3):''), (r.wind && r.wind.y!=null? r.wind.y.toFixed(3):''), (r.flatness!=null? r.flatness.toFixed(6):''), (r.lowBand!=null? r.lowBand.toFixed(6):'')].join(',')); }
+      const prowHead = ['t','label','torso_deg','neck_deg','speed_mps','heading_deg'];
+      const prowRows = [prowHead.join(',')];
+      for (let i=0;i<poseData.length;i++){ const p = poseData[i]; prowRows.push([p.t, p.label, p.torsoDeg, p.neckDeg, (p.speed!=null? p.speed.toFixed(3):''), (p.heading!=null? p.heading.toFixed(2):'')].join(',')); }
+      const csv = rows.join('
+') + '
+
+' + '# posture snapshots' + '
+' + prowRows.join('
+');
+      const blob = new Blob([csv], { type: 'text/csv' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'windcoach_log.csv'; a.click(); URL.revokeObjectURL(url);
+    });
+
+    btnSnap.addEventListener('click', async function(){ await snapshotAndAnalyze(); });
+    btnSavePose.addEventListener('click', function(){
+      const torsoTxt = document.getElementById('mTorso').textContent; const neckTxt = document.getElementById('mNeck').textContent;
+      if (torsoTxt.indexOf('deg') === -1 || neckTxt.indexOf('deg') === -1) { alert('No valid angles to save'); return; }
+      const torsoDeg = parseFloat(torsoTxt); const neckDeg = parseFloat(neckTxt);
+      poseData.push({ t: Date.now(), label: poseLabelSel.value, torsoDeg: torsoDeg, neckDeg: neckDeg, speed: gps.speed || null, heading: gps.heading || null });
+      document.getElementById('mPoseN').textContent = String(poseData.length); document.getElementById('btnSavePose').disabled = true;
+    });
+
+    // Self tests
+    document.getElementById('btnRunTests').addEventListener('click', function(){ runTests(); });
+    function addTestLine(msg){ testResults.textContent += msg + "
+"; }
+    function runTests(){
+      testResults.textContent = ''; testResults.classList.remove('hidden'); var pass = 0, fail = 0;
+      // Test 1: gaussianSolve 3x3
+      try {
+        const A = [[3,2,1],[2,2,4],[1,3,3]]; const b = [1, 2, 3]; const x = gaussianSolve(A.map(function(r){return r.slice();}), b.slice());
+        const Ax = [3*x[0]+2*x[1]+x[2], 2*x[0]+2*x[1]+4*x[2], 1*x[0]+3*x[1]+3*x[2]];
+        const err = Math.max(Math.abs(Ax[0]-1), Math.abs(Ax[1]-2), Math.abs(Ax[2]-3));
+        if (err < 1e-9) { addTestLine('Test1 gaussianSolve: PASS'); pass++; } else { addTestLine('Test1 gaussianSolve: FAIL err='+err); fail++; }
+      } catch(e){ addTestLine('Test1 gaussianSolve: EXC ' + e.message); fail++; }
+      // Test 2: RidgeRegressor fit y = 2 + 3x
+      try {
+        const rr = new RidgeRegressor(1e-6);
+        for (let i=0;i<20;i++){ const x = i/5; rr.addSample([x], 2 + 3*x); }
+        rr.fit();
+        const p = rr.predict([1.234]); const err = Math.abs(p - (2 + 3*1.234));
+        if (err < 1e-3) { addTestLine('Test2 RidgeRegressor: PASS'); pass++; } else { addTestLine('Test2 RidgeRegressor: FAIL err='+err); fail++; }
+      } catch(e){ addTestLine('Test2 RidgeRegressor: EXC ' + e.message); fail++; }
+      // Test 3: WindSolver recovers wind vector
+      try {
+        const ws = new WindSolver(); const wTrue = {x:3, y:4};
+        const headings = [0, 90, 180, 270, 45, 135, 225, 315]; const speed = 10;
+        for (let i=0;i<headings.length;i++){
+          const vg = vecFromSpeedHeading(speed, headings[i]); const vx = wTrue.x - vg.x, vy = wTrue.y - vg.y; const va = Math.hypot(vx, vy); ws.push(vg, va, 1.0);
+        }
+        const est = ws.solve(40, 1.0); const err = Math.hypot(est.x - wTrue.x, est.y - wTrue.y);
+        if (err < 0.2) { addTestLine('Test3 WindSolver: PASS'); pass++; } else { addTestLine('Test3 WindSolver: FAIL err='+err.toFixed(3)); fail++; }
+      } catch(e){ addTestLine('Test3 WindSolver: EXC ' + e.message); fail++; }
+      testSummary.textContent = 'pass=' + pass + ', fail=' + fail;
+    }
+
+    // Main feature loop
+    audio.onFeatures = function(payload){
+      const features = payload.features, metrics = payload.metrics; frames++; document.getElementById('frameCount').textContent = String(frames);
+      const speed = gps.speed || 0; const heading = gps.heading;
+      const flat = metrics.flatness; const low = metrics.lowBand;
+      const flatW = clamp((flat - 0.3) / (0.9 - 0.3), 0, 1); const lowW = clamp(1 - (low - (-9)) / (3 - (-9)), 0, 1);
+      const audioWeight = 0.7 * flatW + 0.3 * lowW;
+      var va = model.predict(features); if (!model.coef) { va = speed * (0.7 + 0.6 * flatW); }
+      lastVa = va; lastConf = audioWeight;
+      if (heading != null && (riding || calibrating)) {
+        const vg = vecFromSpeedHeading(speed, heading); const w = clamp(audioWeight, 0, 1);
+        solver.push(vg, va, w); const est = solver.solve(8, 0.9); const windSpeed = mag(est); const cross = crosswindComponent(est, vg);
+        mSpeed.textContent = toKMH(speed).toFixed(1) + ' km/h'; mVa.textContent = toKMH(va).toFixed(1) + ' km/h'; mW.textContent = toKMH(windSpeed).toFixed(1) + ' km/h'; mHead.textContent = Math.round(heading) + '°'; mCross.textContent = toKMH(Math.abs(cross)).toFixed(1) + ' km/h'; mConf.textContent = Math.round(100 * audioWeight) + '%';
+        drawCanvas(est, vg, va, audioWeight);
+        logData.push({ t: Date.now(), speed: speed, heading: heading, va: va, audioWeight: audioWeight, wind: est, flatness: flat, lowBand: low });
+      }
+      if (calibrating && speed > 2) { model.addSample(features, speed); calCount.textContent = 'Samples: ' + model.X.length; }
+    };
+
+    function crosswindComponent(w, vg) { const vgMag = mag(vg); if (vgMag < 0.1) return 0; const nx = -vg.y / vgMag; const ny = vg.x / vgMag; return w.x * nx + w.y * ny; }
+
+    // --------------------------- Visualization ---------------------------
+    const canvas = document.getElementById('windCanvas');
+    const ctx = canvas.getContext('2d');
+    function resizeCanvas() { const rect = canvas.getBoundingClientRect(); canvas.width = Math.floor(rect.width * devicePixelRatio); canvas.height = Math.floor(rect.height * devicePixelRatio); drawCanvas(solver.w, {x:0,y:0}, lastVa, lastConf); }
+    window.addEventListener('resize', resizeCanvas);
+
+    function drawCanvas(w, vg, va, conf) {
+      const cw = canvas.width, ch = canvas.height; ctx.clearRect(0, 0, cw, ch);
+      ctx.save(); ctx.globalAlpha = 0.4; ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+      for (let x = 0; x < cw; x += 80) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, ch); ctx.stroke(); }
+      for (let y = 0; y < ch; y += 80) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(cw, y); ctx.stroke(); }
+      ctx.restore();
+      const cx = cw * 0.5, cy = ch * 0.62, S = 18 * devicePixelRatio;
+      ctx.save(); ctx.translate(cx, cy); ctx.lineWidth = 3 * devicePixelRatio; arrow(ctx, 0, 0, vg.x * S, -vg.y * S, '#a6b3d1');
+      ctx.beginPath(); ctx.arc(0, 0, Math.max(8, va * S), 0, Math.PI * 2); ctx.strokeStyle = 'rgba(122,162,255,0.5)'; ctx.lineWidth = 2 * devicePixelRatio; ctx.stroke();
+      var alpha = 0.6 + 0.35 * conf; if (alpha > 0.95) alpha = 0.95; if (alpha < 0.1) alpha = 0.1; var col = 'rgba(61,211,195,' + alpha + ')';
+      arrow(ctx, 0, 0, w.x * S, -w.y * S, col); ctx.restore();
+      ctx.fillStyle = 'rgba(255,255,255,0.8)'; var fnt = (14 * devicePixelRatio) + 'px ui-sans-serif'; ctx.font = fnt;
+      ctx.fillText('Bike (ground velocity)', 12 * devicePixelRatio, 22 * devicePixelRatio);
+      ctx.fillStyle = '#a6b3d1'; ctx.fillRect(12 * devicePixelRatio, 28 * devicePixelRatio, 24 * devicePixelRatio, 4 * devicePixelRatio);
+      ctx.fillStyle = 'rgba(122,162,255,0.9)'; ctx.fillText('Apparent wind (magnitude)', 12 * devicePixelRatio, 52 * devicePixelRatio);
+      ctx.fillStyle = 'rgba(61,211,195,0.9)'; ctx.fillText('Estimated true wind', 12 * devicePixelRatio, 72 * devicePixelRatio);
+    }
+
+    function arrow(ctx, x0, y0, x1, y1, color) {
+      ctx.strokeStyle = color; ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      const ang = Math.atan2(y1 - y0, x1 - x0); const len = Math.hypot(x1 - x0, y1 - y0); const ah = Math.min(14 * devicePixelRatio, Math.max(8 * devicePixelRatio, len * 0.15));
+      ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x1 - ah * Math.cos(ang - Math.PI / 8), y1 - ah * Math.sin(ang - Math.PI / 8)); ctx.lineTo(x1 - ah * Math.cos(ang + Math.PI / 8), y1 - ah * Math.sin(ang + Math.PI / 8)); ctx.closePath(); ctx.fill();
+    }
+
+    // --------------------------- Init ---------------------------
+    function initUI() { resizeCanvas(); document.getElementById('btnStartRide').disabled = !(navigator.mediaDevices && navigator.mediaDevices.getUserMedia); loadSettings(); }
+    initUI();
+
+    setInterval(function(){ document.getElementById('winSec').textContent = (solver.maxLen / (1000 / audio.frameMs)).toFixed(0); }, 1000);
+  </script>
+</body>
+</html>
